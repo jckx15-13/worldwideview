@@ -13,9 +13,6 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/*": ["./scripts/**/*"],
   },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   async headers() {
     return [
       {
