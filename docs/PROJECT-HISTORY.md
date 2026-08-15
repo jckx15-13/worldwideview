@@ -1,8 +1,12 @@
 # WorldWideView — Project History, Phases & Fork Roadmap
 
 **Fork baseline:** `fork/optimization-baseline` @ `fec442f7` (2026-08-07)
-**Upstream:** `silvertakana/worldwideview` — local `main` is **9 commits behind**
-**Version at fork:** `2.65.13`
+**Merge base with upstream:** `556acd17` — **not** `fec442f7`, which is merely the
+oldest fork commit. An earlier revision of this file implied otherwise; any conflict
+estimate computed against `fec442f7` was inflated with fork changes shown in reverse.
+**Upstream:** `silvertakana/worldwideview` — the 9-commit drift was **merged
+2026-08-15** (`13895091`). Local `main` is no longer behind.
+**Version at fork:** `2.65.13` → **`2.65.17`** after the merge
 **History:** 1,081 commits · 2026-03-04 → 2026-08-07 · 8 contributors
 
 > Everything below is derived from git history, tags, ADRs, `CHANGELOG.md` and
@@ -348,10 +352,18 @@ plugin depends on. Add a CI gate so it cannot regress.
 
 Only meaningful once Phase 39 baselines exist.
 
-- Audit what Cesium actually ships to the browser (dominant client cost)
-- Per-route bundle budgets enforced in CI
-- Investigate 2.6 GB `.next` cache growth
-- Profile `DataBus` → Zustand → primitive-render under live load
+- Audit what Cesium actually ships to the browser (dominant client cost). **The gating
+  question remains unanswered**: is the 3.9 MB Cesium+Draco chunk loaded eagerly on
+  first paint, or is it code-split behind a dynamic import? A grep cannot answer this;
+  static analysis of `.next/build-manifest.json` or dynamic import tracking may work.
+  **Establish this before acting on the chunk.**
+- Per-route bundle budgets enforced in CI (blocked on UNMEASURED per-route First Load JS)
+- Investigate `.next` cache growth: was 2.6 GB at fork, now **4.7 GB**. Investigate
+  subdirectories and whether this is normal webpack accumulation or a leak. Costs: disk,
+  CI runtime, Docker layer size.
+- Profile `DataBus` → Zustand → primitive-render under live load. Cheap experiment now
+  unblocked: raise `experimental.cpus` above the current `cpus: 2` pin (which rested on
+  a now-refuted OOM premise) and measure wall-clock impact on a 12-core host.
 
 ### Phase 42 — Diagnostic Engine, Replayed Cleanly *(Era 7 landed properly)*
 
@@ -372,16 +384,32 @@ it misleads.
 ## 6. Fork topology
 
 ```
-fec442f7  main / fork/optimization-baseline   ← fork point (pre-Era-7)
-   │                                             9 behind origin/main
-   └── d4f94e90  wip/phase3-and-local-changes  ← Era 7 + unrelated local changes
+556acd17 (merge-base with origin/main)
+   │
+   │ 8edd1ee4…fec442f7  fork/optimization-baseline pre-merge (pre-Era-7)
+   │ ├─ 2a16de07  fix: declare wwv-diagnostics-client dependency
+   │ ├─ 431d3364  fix(ui): guard optional onSelect call in LayerItem
+   │ ├─ 4998e400  docs: mark baseline superseded; resolve flakiness root cause
+   │ └─ d15c5378  docs: correct peak-RSS measurement error + post-merge baseline
+   │
+   └─ 13895091  Merge remote-tracking branch 'origin/main' (2026-08-15)
+       │ 9 upstream commits (Next 16.2.11 → 16.3.0, etc.)
+       │
+       └─ fork/optimization-baseline (current)
+          
+  d4f94e90  wip/phase3-and-local-changes  ← snapshot of Era 7 + unrelated changes (recovery source)
 ```
 
 | Branch | Contains |
 |---|---|
-| `fork/optimization-baseline` | Clean pre-diagnostic-engine baseline. **Working branch.** |
+| `fork/optimization-baseline` | Clean baseline. **Working branch.** Merged upstream 2026-08-15. |
 | `wip/phase3-and-local-changes` | Full snapshot of everything uncommitted at fork time. Recovery source. |
 | `main` | Tracks upstream. Do not develop here. |
+| `origin/main` | Upstream at silvertakana/worldwideview. 9 commits merged into baseline 2026-08-15. |
 
-Nothing was discarded. Every uncommitted change is recoverable from
-`wip/phase3-and-local-changes`.
+**Note on Phase 39's exit criterion:** The roadmap states "green build with
+type-checking *on*". `typescript.ignoreBuildErrors` is still set to `true` in
+`next.config.ts:16` as of commit `d15c5378`. However, `tsc --noEmit` under
+`strict: true` returns **0 errors across 515 files** — the flag is hiding nothing.
+Deleting the flag and re-baselining (Phase 40's work) will close this, and is
+sequenced to happen immediately next. Phase 39 and 40 have effectively merged.
