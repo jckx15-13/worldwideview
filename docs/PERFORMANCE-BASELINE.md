@@ -53,10 +53,14 @@ jump did **not** measurably move the bundle.
 versus ~8,000 MB for the baseline, so machine load is confounded with the Next upgrade.
 Isolating it needs both runs on an equally quiet host.
 
-**Still UNMEASURED: per-route First Load JS.** Next 16.3.0 emits only a
-`Route (app) Revalidate Expire` header to a non-TTY log — no size columns. The
-gap recorded pre-merge survives the upgrade; a TTY run or bundle analyzer is still
-required.
+**Still UNMEASURED: per-route First Load JS — and the stated remedy was wrong.**
+Next 16.3.0 emits `Route (app) | Revalidate | Expire`. Earlier revisions of this
+file blamed non-TTY output and prescribed "re-run in a TTY". **Tested 2026-08-16
+and refuted:** a build under `script -qec` (real pseudo-TTY, exit 0, 118 s) still
+emits **0** size columns. Next 16 removed the Size / First Load JS columns from
+build output entirely; it is not a TTY-detection artifact. `@next/bundle-analyzer`
+is not installed and `.next/app-build-manifest.json` is not emitted, so no
+per-route attribution is currently obtainable without adding tooling.
 
 ---
 
@@ -240,10 +244,13 @@ affected files are precisely the auth-adjacent ones Phase 39 fingered.
 
 Recorded so nobody mistakes absence for zero:
 
-1. **Per-route First Load JS.** Next.js 16 emitted no size table to a non-TTY
-   log (`grep -c 'kB|MB'` = 0). The chunk sizes above are the emitted-artifact
-   substitute, not Next's per-route attribution. Re-run in a TTY, or use a
-   bundle analyzer, for true per-route numbers.
+1. **Per-route First Load JS.** Next.js 16 emits no size table at all — the
+   columns are `Route (app) | Revalidate | Expire`. The chunk sizes above are the
+   emitted-artifact substitute, not Next's per-route attribution.
+   **The TTY theory is refuted** (see above): a real pseudo-TTY build still gives
+   `grep -c 'kB|MB'` = 0. Closing this gap requires *adding* tooling —
+   `@next/bundle-analyzer` (not currently a dependency) — not re-running the build
+   differently. That is a Phase 41 task, not a measurement retry.
 2. **Whether the 3.9 MB Cesium chunk is eager or lazy.** Decides its priority.
 3. **Runtime performance.** No frame timings, no live-data profiling, no
    DataBus → Zustand → render measurements. Every Phase 41 runtime hypothesis is
