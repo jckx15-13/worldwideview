@@ -43,7 +43,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm audit --audit-level high || true
+      # No `|| true`: the 8 high-severity advisories that made this unenforceable
+      # were resolved 2026-08-16 via pnpm.overrides (brace-expansion, fast-uri,
+      # nanoid) and by dropping @size-limit/preset-app, which pulled in an
+      # unpatchable extract-zip via its unused Chrome-based time plugin.
+      - run: pnpm audit --audit-level high
 
   ascii-lint:
     name: ASCII Lint
