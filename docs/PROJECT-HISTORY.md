@@ -348,22 +348,44 @@ Burn the Phase 39 error count down until `ignoreBuildErrors` can be **deleted,
 not toggled**. Prioritise the plugin SDK boundary — it is the contract every
 plugin depends on. Add a CI gate so it cannot regress.
 
-### Phase 41 — Runtime & Bundle Performance
+### Phase 41 — Runtime & Bundle Performance ✅ *(closed 2026-08-17)*
 
-Only meaningful once Phase 39 baselines exist.
+The phase was blocked on a real gap: the project had no way to observe its own
+runtime, so every performance claim was inference. Tooling first, then the fix.
 
-- Audit what Cesium actually ships to the browser (dominant client cost). **The gating
-  question remains unanswered**: is the 3.9 MB Cesium+Draco chunk loaded eagerly on
-  first paint, or is it code-split behind a dynamic import? A grep cannot answer this;
-  static analysis of `.next/build-manifest.json` or dynamic import tracking may work.
-  **Establish this before acting on the chunk.**
-- Per-route bundle budgets enforced in CI (blocked on UNMEASURED per-route First Load JS)
-- Investigate `.next` cache growth: was 2.6 GB at fork, now **4.7 GB**. Investigate
-  subdirectories and whether this is normal webpack accumulation or a leak. Costs: disk,
-  CI runtime, Docker layer size.
-- Profile `DataBus` → Zustand → primitive-render under live load. Cheap experiment now
-  unblocked: raise `experimental.cpus` above the current `cpus: 2` pin (which rested on
-  a now-refuted OOM premise) and measure wall-clock impact on a 12-core host.
+**Done:**
+
+- **Measurement tooling.** `@next/bundle-analyzer` (`pnpm analyze`) replaces the
+  per-route First Load JS columns Next 16 removed. A production-mode Playwright
+  harness (`pnpm perf`) measures what a browser actually downloads — the other
+  Playwright configs all run `pnpm dev`, whose numbers are meaningless for
+  bundle work.
+- **The gating question is answered.** The 3.9 MB Cesium+Draco chunk is
+  code-split *and* rendered unconditionally — deferred, not on-demand. Worse, it
+  was invisible to the preload scanner, so its fetch was serialized behind
+  hydration: **327 ms** to first request against **19 ms** for the first JS.
+- **The waterfall is fixed.** `src/app/page.tsx` now preloads the GlobeView
+  chunks resolved from `.next/react-loadable-manifest.json`. Discovery
+  327 ms → **19 ms**, download complete 754 ms → **185 ms**, for **zero extra
+  bytes** — verified no double fetch and verified on a clean (Docker-equivalent)
+  build. See `docs/PERFORMANCE-BASELINE.md` §"Phase 41 results".
+- **`.next` growth resolved** — 62% of the 4.7 GB is `.next/dev`, dev-only.
+  Local disk hygiene, not build bloat.
+- **`experimental.cpus` decided:** stays at 2. The original OOM premise was
+  refuted, but `Dockerfile:81` caps the build heap at 3072 MB against a measured
+  3,575 MB peak RSS, so more workers risks a container OOM to buy build time
+  developers pay, not users.
+
+**Deliberately not done, with reasons:**
+
+- **Per-route bundle budgets in CI.** Next 16 emits no per-route sizes; the
+  whole-bundle `size-limit` gate (1.76 MB brotlied / 2 MB) covers regression.
+- **Draco split.** The chunk shows `draco` ×87, but whether that is the decoder
+  or loader plumbing is unverified — Cesium also loads Draco as a worker from
+  `public/cesium/`. `pnpm analyze` can settle it; splitting on a guess is how
+  this roadmap accumulated its earlier wrong numbers.
+- **`DataBus` → Zustand render profiling.** Needs live backends the perf harness
+  does not yet start; `appReadyMs` is still unmeasured for the same reason.
 
 ### Phase 42 — Diagnostic Engine, Replayed Cleanly *(Era 7 landed properly)*
 

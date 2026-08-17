@@ -17,9 +17,10 @@
 > | Fork engineering phases (39-43) | `docs/PROJECT-HISTORY.md` §5 |
 > | Measured performance facts | `docs/PERFORMANCE-BASELINE.md` |
 >
-> Phases 39, 40, 42 and 43 are complete. Phase 41 (runtime and bundle
-> performance) is scoped but blocked on measurement tooling that does not yet
-> exist - see the baseline doc for what is measured versus inferred.
+> Phases 39-43 are complete. Phase 41 (runtime and bundle performance) closed
+> 2026-08-17: the measurement tooling it was blocked on now exists (`pnpm
+> analyze`, `pnpm perf`), and the globe's load waterfall was fixed on the back of
+> it - see the baseline doc for measured versus inferred.
 >
 > **Tracking anomaly, unresolved:** `.gitignore:47` ignores `.planning/` and
 > notes it belongs to a private repo (`silvertakana/wwv-planning`), yet these

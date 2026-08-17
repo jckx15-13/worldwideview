@@ -3,6 +3,69 @@
 All notable changes to WorldWideView are documented here. This project follows
 Conventional Commits and bumps semver in `package.json` per change.
 
+## v2.66.0 - Measured, Then Fixed (2026-08-17)
+
+Closes Phase 41. The phase had been blocked for a reason worth stating plainly:
+the project could not observe its own runtime, so every performance claim in it
+was inference. This release adds the observation, then acts on what it showed.
+
+### Added
+
+- `@next/bundle-analyzer`, wired behind `ANALYZE=1` — `pnpm analyze`. Next 16
+  removed the per-route First Load JS columns from build output, leaving no way
+  to attribute bundle weight to a module. This restores it.
+- A production-mode performance harness — `pnpm perf`
+  (`playwright.perf.config.ts` + `tests/perf/globe-load.perf.spec.ts`). Every
+  other Playwright config runs `pnpm dev`, so every number they could produce is
+  a dev-server number: unminified, unsplit, compiled on demand. This one runs
+  `next start` against a real build and records the load waterfall to
+  `playwright/output/perf/globe-load.json`.
+  It needs no database — `src/proxy.ts` gates `/` on session-cookie *presence*
+  only, so a synthetic cookie reaches the identical client bundle.
+
+### Performance
+
+- **The globe's 1.34 MB of compressed JS now starts downloading 308 ms earlier.**
+  `GlobeView` is a `next/dynamic(..., { ssr: false })` import rendered
+  unconditionally, so its chunks were absent from the prerendered HTML and
+  invisible to the browser's preload scanner. Measured: first JS request at
+  19 ms, globe chunks not requested until 327 ms — 308 ms of idle network on the
+  critical path of the component that *is* the product.
+
+  `src/app/page.tsx` now calls React 19's `preload()` with hrefs resolved from
+  `.next/react-loadable-manifest.json` (`src/lib/globe-preload.ts`).
+
+  | | Before | After |
+  |---|---:|---:|
+  | Globe chunks discovered | 327 ms | **19 ms** |
+  | Globe fully downloaded | 754 ms | **185 ms** |
+  | Globe chunks in HTML | 0 of 6 | **6 of 6** |
+  | Bytes shipped | 1,342,901 | **1,342,901** |
+
+  Scoped to `/`, not `layout.tsx` — `/login`, `/setup` and `/locked` share that
+  layout and must not pull Cesium. Two failure modes were checked rather than
+  assumed: chunk request count stayed at 6 (the preload is reused, not
+  double-fetched), and a clean build with `.next` deleted still bakes all 6
+  chunks into the prerendered HTML, which is what makes this work in Docker.
+
+### Decided
+
+- `experimental.cpus` stays at **2**. The original OOM justification was refuted
+  earlier in this fork work, but `Dockerfile:81` caps the build heap at 3072 MB
+  against a measured 3,575 MB peak RSS. More workers would trade a container OOM
+  for build time that developers pay and users never see.
+
+### Known limits of these numbers
+
+- Measured over localhost. The 308 ms gap is hydration-bound and survives any
+  connection; the 569 ms download saving is a floor that grows on slower links.
+- `appReadyMs` is still unmeasured — the harness starts no Redis, Postgres or
+  data engine, so plugin boot never completes. Time-to-interactive remains the
+  obvious next increment.
+- Whether the chunk's `draco` references are the decoder or loader plumbing is
+  **unverified**; `pnpm analyze` can now settle it. Splitting it on a guess is
+  how this roadmap accumulated its earlier wrong numbers.
+
 ## v2.65.22 - The Untagged Window (2026-06-12 - 2026-08-17)
 
 Release traceability lapsed after `v1.6`. **342 commits** shipped untagged over

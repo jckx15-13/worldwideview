@@ -25,6 +25,10 @@ export default defineConfig({
   testIgnore: [
     '**/pact/**',
     '**/ci/**',
+    // Production-mode measurement, not a functional test. This config's webServer
+    // is `pnpm dev`; running the perf spec against it would report dev-server
+    // numbers. Use playwright.perf.config.ts (`pnpm perf`).
+    '**/perf/**',
     '**/web-auth.spec.ts',
     '**/marketplace-from-instance.spec.ts',
     '**/marketplace-redirect-handshake.spec.ts',

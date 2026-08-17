@@ -1,4 +1,13 @@
 import type { NextConfig } from "next";
+import bundleAnalyzer from "@next/bundle-analyzer";
+
+// Off unless ANALYZE=1. Next 16 removed the per-route First Load JS columns from
+// build output, so `pnpm analyze` is now the only way to attribute bundle weight
+// to a module. See docs/PERFORMANCE-BASELINE.md.
+const withBundleAnalyzer = bundleAnalyzer({
+  enabled: process.env.ANALYZE === "1",
+  openAnalyzer: false,
+});
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -115,4 +124,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withBundleAnalyzer(nextConfig);
