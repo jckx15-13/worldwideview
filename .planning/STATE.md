@@ -1,8 +1,37 @@
+> [!CAUTION]
+> **RETIRED 2026-08-17. Do not trust anything below.**
+>
+> Last updated 2026-06-11; **342 commits** have landed since. A planning system
+> this stale is worse than none - it reads as current and misleads. Kept only as
+> a historical record of the v1.6 milestone.
+>
+> This file describes the ROOT checkout only. Per-worktree `.planning/STATE.md`
+> files, created fresh by the `worktree-bootstrap` and `plugin-new` skills, are
+> unaffected by this notice.
+>
+> Current planning lives in three places, all maintained:
+>
+> | What | Where |
+> |---|---|
+> | Product stages (1-10) | `ROADMAP.md` (repo root) |
+> | Fork engineering phases (39-43) | `docs/PROJECT-HISTORY.md` §5 |
+> | Measured performance facts | `docs/PERFORMANCE-BASELINE.md` |
+>
+> Phases 39, 40, 42 and 43 are complete. Phase 41 (runtime and bundle
+> performance) is scoped but blocked on measurement tooling that does not yet
+> exist - see the baseline doc for what is measured versus inferred.
+>
+> **Tracking anomaly, unresolved:** `.gitignore:47` ignores `.planning/` and
+> notes it belongs to a private repo (`silvertakana/wwv-planning`), yet these
+> files are tracked - an ignore rule cannot retroactively untrack. Untangling
+> that affects how the private planning repo syncs, so it is left as a decision
+> rather than actioned here.
+
 ---
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Cloud Launch
-status: completed
+status: retired-superseded
 last_updated: "2026-06-11T04:43:19.313Z"
 last_activity: "2026-06-11 — Phase 37 Plan 01 shipped: MarketplaceConnect component, callback error handling, connect-status page, encryption key validation, InstanceConfig deprecation banner"
 progress:
