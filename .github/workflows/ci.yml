@@ -110,7 +110,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @worldwideview/wwv-plugin-sdk build
       - run: npx prisma generate
-      - run: pnpm exec vitest run --coverage || true
+      # No `|| true`: this gate must be able to fail. Test flakiness was
+      # root-caused and fixed (hookTimeout/testTimeout in vitest.config.ts),
+      # and coverage thresholds were ratcheted to measured actuals.
+      - run: pnpm exec vitest run --coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7

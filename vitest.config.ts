@@ -41,9 +41,17 @@ export default defineConfig({
         coverage: {
             provider: 'v8',
             reporter: ['text', 'json', 'json-summary', 'html'],
+            // Ratchet, not aspiration. 80/70 were never met and never enforced —
+            // ci.yml swallowed the failure with `|| true`, so nobody ever saw it.
+            // Measured 2026-08-16 over two runs: functions 35.60/35.55%,
+            // branches 34.55/34.46%. Coverage drifts ~0.1pp run-to-run, so these
+            // sit ~1.5pp below actual — enough margin that a loaded CI runner
+            // cannot flap the gate, while still blocking real REGRESSION.
+            // A gate that flaps is worse than no gate.
+            // Raise these as coverage improves; never lower them.
             thresholds: {
-                functions: 80,
-                branches: 70,
+                functions: 34,
+                branches: 33,
             },
         }
     },
