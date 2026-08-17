@@ -1,5 +1,12 @@
 declare global {
     interface Window {
+        /**
+         * NOTE: nothing in this repository ever assigns `window.ENV`.
+         * Verified 2026-08-16 by repo-wide grep. Until something does, the
+         * browser branch below no-ops and `global-error.tsx` reports nothing.
+         * Wiring it up is a deliberate decision, not an oversight to "fix"
+         * casually — see the scheme check in `resolveEndpoint`.
+         */
         ENV?: {
             NEXT_PUBLIC_DIAGNOSTIC_ENGINE_URL?: string;
         };
@@ -14,8 +21,20 @@ export interface DiagnosticReport {
     metadata?: Record<string, unknown>;
 }
 
-const SENSITIVE_KEYS = new Set(["key", "token", "auth", "password", "secret", "credential"]);
+/**
+ * Substrings, not exact keys. The previous exact-match set let `apiKey`,
+ * `accessToken`, `authorization`, `cookie`, `privateKey` and `jwt` through
+ * untouched while still stamping the payload `sanitized: true`.
+ */
+const SENSITIVE_PATTERNS = [
+    "key", "token", "auth", "password", "secret", "credential",
+    "cookie", "session", "jwt", "signature", "bearer",
+];
+
 const BACKOFF_DURATION_MS = 60000;
+const REQUEST_TIMEOUT_MS = 5000;
+const MAX_REDACTION_DEPTH = 6;
+
 let lastFailureTime = 0;
 
 function generateId(): string {
@@ -24,13 +43,9 @@ function generateId(): string {
     return `wwv-${timestamp}-${random}`;
 }
 
-function redactSensitiveKeys(obj: Record<string, unknown>): Record<string, unknown> {
-    if (!obj || typeof obj !== "object") return {};
-    const result: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj)) {
-        result[k] = SENSITIVE_KEYS.has(k.toLowerCase()) ? "[REDACTED]" : v;
-    }
-    return result;
+function isSensitiveKey(key: string): boolean {
+    const lower = key.toLowerCase();
+    return SENSITIVE_PATTERNS.some((p) => lower.includes(p));
 }
 
 function redactString(str: string): string {
@@ -41,12 +56,54 @@ function redactString(str: string): string {
         .replace(/Basic\s+[^\s]+/gi, "Basic [REDACTED]");
 }
 
-/** Fire-and-forget. Never throws. No-ops when DIAGNOSTIC_ENGINE_URL is unset. */
-export function reportToDiagnosticEngine(report: DiagnosticReport, source: string): void {
-    const url = typeof window !== "undefined"
+/**
+ * Recurses into nested objects and arrays, and applies `redactString` to string
+ * values. The previous implementation did neither, so a secret one level down —
+ * or a bearer token inside an otherwise innocuous string — survived intact.
+ */
+function redactValue(value: unknown, depth = 0): unknown {
+    if (depth >= MAX_REDACTION_DEPTH) return "[TRUNCATED]";
+    if (typeof value === "string") return redactString(value);
+    if (Array.isArray(value)) return value.map((v) => redactValue(v, depth + 1));
+    if (value && typeof value === "object") {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+            out[k] = isSensitiveKey(k) ? "[REDACTED]" : redactValue(v, depth + 1);
+        }
+        return out;
+    }
+    return value;
+}
+
+export function redactMetadata(obj: Record<string, unknown>): Record<string, unknown> {
+    if (!obj || typeof obj !== "object") return {};
+    return redactValue(obj) as Record<string, unknown>;
+}
+
+/**
+ * Only `http:`/`https:` absolute URLs are accepted. On the browser side the
+ * destination comes from mutable global state, so without this check any script
+ * able to set `window.ENV` could redirect every future report — stack traces
+ * included — to a host of its choosing.
+ */
+function resolveEndpoint(): string | null {
+    const raw = typeof window !== "undefined"
         ? window.ENV?.NEXT_PUBLIC_DIAGNOSTIC_ENGINE_URL
         : process.env.DIAGNOSTIC_ENGINE_URL;
-    if (!url) return;
+    if (!raw) return null;
+    try {
+        const parsed = new URL(raw);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+        return `${parsed.origin}/api/diagnostics/ingest`;
+    } catch {
+        return null;
+    }
+}
+
+/** Fire-and-forget. Never throws. No-ops when the engine URL is unset or invalid. */
+export function reportToDiagnosticEngine(report: DiagnosticReport, source: string): void {
+    const endpoint = resolveEndpoint();
+    if (!endpoint) return;
     if (Date.now() - lastFailureTime < BACKOFF_DURATION_MS) return;
 
     const entry = {
@@ -57,24 +114,39 @@ export function reportToDiagnosticEngine(report: DiagnosticReport, source: strin
         message: redactString(report.message),
         stack: report.stack ? redactString(report.stack) : undefined,
         source,
-        metadata: report.metadata ? redactSensitiveKeys(report.metadata) : undefined,
+        metadata: report.metadata ? redactMetadata(report.metadata) : undefined,
         sanitized: true,
     };
 
     try {
         const payload = JSON.stringify(entry);
         if (typeof window !== "undefined") {
-            navigator.sendBeacon?.(`${url}/api/diagnostics/ingest`, payload);
+            // A `false` return means the payload was rejected (size cap, or no
+            // beacon support). Previously discarded, so backoff never engaged.
+            const queued = navigator.sendBeacon?.(endpoint, payload);
+            if (!queued) lastFailureTime = Date.now();
         } else {
-            fetch(`${url}/api/diagnostics/ingest`, {
+            fetch(endpoint, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: payload,
-            }).catch(() => {
-                lastFailureTime = Date.now();
-            });
+                // fetch resolves on 4xx/5xx, so a dead engine never tripped the
+                // backoff. Check `ok` explicitly, and bound the request.
+                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+            })
+                .then((res) => {
+                    if (!res.ok) lastFailureTime = Date.now();
+                })
+                .catch(() => {
+                    lastFailureTime = Date.now();
+                });
         }
     } catch {
         lastFailureTime = Date.now();
     }
+}
+
+/** Test-only: clears the module-level backoff so cases do not bleed into each other. */
+export function __resetBackoffForTests(): void {
+    lastFailureTime = 0;
 }
