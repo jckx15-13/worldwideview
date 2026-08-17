@@ -21,6 +21,16 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
     testDir: './tests/perf',
+    // Real auth. A synthetic cookie clears src/proxy.ts (presence-only) but every
+    // /api/* route does genuine auth, so an unauthenticated run 401s the
+    // marketplace sync and NO plugins ever register — `plugin-register-all` then
+    // reads 0 ms, which looks like "instant" and actually means "empty". Reuses
+    // the E2E setup: creates a test user, captures storageState, purges on exit.
+    // Set PERF_NO_AUTH=1 to skip it and measure the anonymous shell only.
+    ...(process.env.PERF_NO_AUTH === '1' ? {} : {
+        globalSetup: './tests/global.setup.ts',
+        globalTeardown: './tests/global.teardown.ts',
+    }),
     // Cold production loads plus a 3.9 MB chunk; the 60s default is too tight.
     timeout: 180_000,
     // Sequential by design: concurrent page loads contend for CPU and network
@@ -38,6 +48,11 @@ export default defineConfig({
         trace: 'off',
         video: 'off',
         screenshot: 'off',
+        // Written by tests/global.setup.ts. Absent under PERF_NO_AUTH=1, in which
+        // case the spec falls back to its synthetic cookie.
+        ...(process.env.PERF_NO_AUTH === '1'
+            ? {}
+            : { storageState: 'playwright/.auth/user.json' }),
     },
     projects: [
         {

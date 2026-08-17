@@ -7,6 +7,7 @@
 import type { WorldPlugin } from "./PluginTypes";
 import type { PluginManifest } from "./PluginManifest";
 import { validateManifest } from "./validateManifest";
+import { bootMarkStart, bootMarkEnd } from "@/lib/boot-metrics";
 
 /**
  * Custom error class for failures occurring during the plugin manifest loading process.
@@ -109,9 +110,18 @@ export async function loadPluginFromManifest(
         );
     }
 
+    // The bundle is fetched over the network with `webpackIgnore: true`, so it is
+    // outside every webpack chunk and invisible to bundle analysis. This mark is
+    // the only way to see what a plugin actually costs at boot.
+    bootMarkStart(`plugin-load:${manifest.id}`);
     try {
-        return await loadBundlePlugin(manifest.entry!);
+        const plugin = await loadBundlePlugin(manifest.entry!);
+        bootMarkEnd(`plugin-load:${manifest.id}`);
+        return plugin;
     } catch (err) {
+        // Mark failures too: a plugin that times out is the expensive case, and
+        // excluding it would flatter the numbers.
+        bootMarkEnd(`plugin-load:${manifest.id}`);
         if (err instanceof ManifestLoadError) throw err;
         const rawMsg = err instanceof Error ? err.message : String(err);
         // Browser throws "Failed to resolve module specifier" when the bundle imports

@@ -64,15 +64,31 @@ interface ResourceSample {
 test('globe load waterfall (production)', async ({ page, context }) => {
     const chunkFiles = globeChunkFiles();
 
-    // proxy.ts gates `/` on cookie PRESENCE only. No DB, no real session needed.
-    await context.addCookies([
-        {
-            name: 'better-auth.session_token',
-            value: 'perf-harness-not-a-real-session',
-            domain: 'localhost',
-            path: '/',
-        },
-    ]);
+    // Plugin bundles are imported with `webpackIgnore: true`, so they never appear
+    // in a chunk and a failed load is silent from the network's point of view.
+    // Capturing errors is the only way to tell "fast" apart from "gave up".
+    const pageErrors: string[] = [];
+    page.on('pageerror', (e) => pageErrors.push(String(e.message ?? e)));
+    page.on('console', (m) => {
+        if (m.type() === 'error') pageErrors.push(m.text());
+    });
+
+    // With storageState loaded there is already a real session cookie; adding the
+    // synthetic one would OVERWRITE it by name and silently drop us back to the
+    // 401-everywhere path where no plugin ever loads. Only fall back when
+    // genuinely unauthenticated (PERF_NO_AUTH=1), where proxy.ts's presence-only
+    // check is enough to reach the shell.
+    const authenticated = (await context.cookies()).some((c) => c.name.includes('session_token'));
+    if (!authenticated) {
+        await context.addCookies([
+            {
+                name: 'better-auth.session_token',
+                value: 'perf-harness-not-a-real-session',
+                domain: 'localhost',
+                path: '/',
+            },
+        ]);
+    }
 
     // Stamp the moment `app-ready` lands. Polling with waitForSelector would fold
     // the poll interval into the number; a MutationObserver does not.
@@ -84,11 +100,16 @@ test('globe load waterfall (production)', async ({ page, context }) => {
                 w.__appReadyAt = performance.now();
             }
         };
-        new MutationObserver(stamp).observe(document.documentElement, {
+        // Observe `document`, not `document.documentElement`. An init script runs
+        // before the document element exists, so the latter is null here and
+        // observe() throws "parameter 1 is not of type 'Node'" — which is why this
+        // silently reported appReadyMs: null on every earlier run.
+        new MutationObserver(stamp).observe(document, {
             subtree: true,
             childList: true,
             attributes: true,
         });
+        stamp();
     });
 
     await page.goto('/', { waitUntil: 'load' });
@@ -111,6 +132,47 @@ test('globe load waterfall (production)', async ({ page, context }) => {
 
     // Let any post-hydration chunk fetches settle before sampling.
     await page.waitForLoadState('networkidle').catch(() => { });
+
+    // Boot-phase work, emitted by src/lib/boot-metrics.ts. These measure real
+    // work; `appReadyMs` does not — useBootSequence sets that on a fixed 3,500 ms
+    // animation timer, so it is an animation length, not a readiness time.
+    // startTime as well as duration: plugin loads overlap, so summing durations
+    // would wildly overstate the wall clock. The envelope (earliest start to
+    // latest end) is what a user actually waits.
+    const bootMeasures: Record<string, { start: number; ms: number }> = await page.evaluate(() => {
+        const out: Record<string, { start: number; ms: number }> = {};
+        for (const e of performance.getEntriesByType('measure')) {
+            if (e.name.startsWith('wwv:')) {
+                out[e.name.slice(4)] = { start: Math.round(e.startTime), ms: Math.round(e.duration) };
+            }
+        }
+        return out;
+    });
+
+    const pluginEntries = Object.entries(bootMeasures).filter(([k]) => k.startsWith('plugin-load:'));
+    const pluginWallClock = pluginEntries.length
+        ? Math.round(
+            Math.max(...pluginEntries.map(([, v]) => v.start + v.ms))
+            - Math.min(...pluginEntries.map(([, v]) => v.start)),
+        )
+        : null;
+    const pluginDurations = pluginEntries.map(([, v]) => v.ms).sort((a, b) => a - b);
+    const pluginStats = pluginDurations.length
+        ? {
+            count: pluginDurations.length,
+            wallClockMs: pluginWallClock,
+            firstStartMs: Math.round(Math.min(...pluginEntries.map(([, v]) => v.start))),
+            lastEndMs: Math.round(Math.max(...pluginEntries.map(([, v]) => v.start + v.ms))),
+            minMs: pluginDurations[0],
+            medianMs: pluginDurations[Math.floor(pluginDurations.length / 2)],
+            maxMs: pluginDurations[pluginDurations.length - 1],
+            sumMs: pluginDurations.reduce((a, b) => a + b, 0),
+            slowest: pluginEntries
+                .sort((a, b) => b[1].ms - a[1].ms)
+                .slice(0, 5)
+                .map(([k, v]) => `${k.replace('plugin-load:', '')}=${v.ms}ms`),
+        }
+        : null;
 
     const resources: ResourceSample[] = await page.evaluate(() =>
         (performance.getEntriesByType('resource') as PerformanceResourceTiming[]).map((e) => ({
@@ -160,6 +222,14 @@ test('globe load waterfall (production)', async ({ page, context }) => {
             preloadLinkCount: preloadCount,
             globeChunksReferencedInHtml: inHtml,
         },
+        // Durations in ms of real boot work. `plugin-load:*` is the network fetch
+        // and instantiation of a plugin bundle; `plugin-enable:*` is its first
+        // activation. Empty means the boot path never reached them — check
+        // pageErrors before reading that as "fast".
+        plugins: pluginStats,
+        boot: bootMeasures,
+        authenticated,
+        pageErrors: pageErrors.slice(0, 25),
     };
 
     fs.mkdirSync(OUT_DIR, { recursive: true });

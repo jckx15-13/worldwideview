@@ -38,6 +38,7 @@ import { isDemo } from "@/core/edition";
 import { injectHostGlobals } from "@/core/plugins/hostGlobals";
 import { getDisabledPluginIds } from "@/core/plugins/pluginPreferences";
 import { initLogCatcher } from "@/lib/logCatcher";
+import { bootMarkStart, bootMarkEnd } from "@/lib/boot-metrics";
 import { MobileCameraStats } from "./MobileCameraStats";
 import { MobileHudBar } from "./MobileHudBar";
 import { AgentBusSubscriber } from "./AgentBusSubscriber";
@@ -83,11 +84,16 @@ export function AppShell() {
 
     useEffect(() => {
         const startPlatform = async () => {
+            // Measures real work, unlike `app-ready`/`platform-boot`, which fire on
+            // useBootSequence's fixed 3,500 ms animation timer. See src/lib/boot-metrics.ts.
+            bootMarkStart("platform-init");
             initLogCatcher();
             console.log("[AppShell] Initializing Platform...");
 
             // Inject host libraries for dynamic plugin loading
+            bootMarkStart("host-globals");
             await injectHostGlobals();
+            bootMarkEnd("host-globals");
             setHostReady(true);
 
             const disabledIds = getDisabledPluginIds();
@@ -102,8 +108,14 @@ export function AppShell() {
                 });
             }
 
+            bootMarkStart("plugin-manager-init");
             await pluginManager.init();
+            bootMarkEnd("plugin-manager-init");
 
+            // Sequential by design (each await blocks the next), so this measure is
+            // the sum of every plugin's register+enable, not the max.
+            bootMarkStart("plugin-register-all");
+            let pluginCount = 0;
             for (const plugin of pluginRegistry.getAll()) {
                 await pluginManager.registerPlugin(plugin);
                 let shouldEnable = false;
@@ -114,11 +126,16 @@ export function AppShell() {
                 }
                 initLayer(plugin.id, shouldEnable);
                 if (shouldEnable) {
+                    bootMarkStart(`plugin-enable:${plugin.id}`);
                     await pluginManager.enablePlugin(plugin.id);
+                    bootMarkEnd(`plugin-enable:${plugin.id}`);
                 }
+                pluginCount += 1;
             }
+            bootMarkEnd("plugin-register-all");
+            bootMarkEnd("platform-init");
 
-            console.log("[AppShell] Platform Ready. Waiting for globe tiles...");
+            console.log(`[AppShell] Platform Ready (${pluginCount} plugins). Waiting for globe tiles...`);
         };
 
         // Guard so boot only starts once regardless of which trigger fires first.
