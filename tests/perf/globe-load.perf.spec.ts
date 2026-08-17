@@ -8,7 +8,7 @@ import path from 'path';
  * Why this exists: Next 16 removed the per-route "First Load JS" columns from
  * build output, and the only other Playwright configs run `pnpm dev`. Between
  * those two facts the project had no way to observe what a real user downloads,
- * so every bundle claim in docs/PERFORMANCE-BASELINE.md was inference. This
+ * so every bundle claim in docs/FORK-OPTIMIZATION-REPORT.md was inference. This
  * turns the central open question — when does the 3.9 MB Cesium chunk actually
  * start downloading? — into a number.
  *

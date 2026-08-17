@@ -11,7 +11,7 @@ export default defineConfig({
         // Vitest's 10s default is not enough on a loaded machine: the beforeEach in
         // src/lib/better-auth.test.ts was measured at 40,362 ms under concurrent load,
         // which is the root cause of the suite's intermittent failures (see
-        // docs/PERFORMANCE-BASELINE.md). Environment setup dilates, not test logic.
+        // docs/FORK-OPTIMIZATION-REPORT.md). Environment setup dilates, not test logic.
         hookTimeout: 60000,
         // Same class of problem, different knob: transport-spike.test.ts dynamically
         // imports the MCP SDK inside the test body and exceeded the 5s default under

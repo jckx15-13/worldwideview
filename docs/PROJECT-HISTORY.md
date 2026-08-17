@@ -368,7 +368,7 @@ runtime, so every performance claim was inference. Tooling first, then the fix.
   chunks resolved from `.next/react-loadable-manifest.json`. Discovery
   327 ms → **19 ms**, download complete 754 ms → **185 ms**, for **zero extra
   bytes** — verified no double fetch and verified on a clean (Docker-equivalent)
-  build. See `docs/PERFORMANCE-BASELINE.md` §"Phase 41 results".
+  build. See `docs/FORK-OPTIMIZATION-REPORT.md` §5.
 - **`.next` growth resolved** — 62% of the 4.7 GB is `.next/dev`, dev-only.
   Local disk hygiene, not build bloat.
 - **`experimental.cpus` decided:** stays at 2. The original OOM premise was
