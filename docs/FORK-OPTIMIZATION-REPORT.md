@@ -408,3 +408,82 @@ All verified at `ea081704`.
 The CI gates only work if nobody defangs them again. They were disabled by
 someone, presumably because they were inconvenient, and they will be inconvenient
 again. The first red build after this work is expected and correct, not a bug.
+
+---
+
+## 11. Startup measurement (v2.67.0 – v2.68.0, 2026-08-18)
+
+Phase 41 optimized the globe waterfall. Instrumenting the rest of boot showed
+that waterfall is a rounding error next to what follows it.
+
+### Why nothing could measure this before
+
+- The only readiness signal was `data-testid="app-ready"`, which
+  `useBootSequence.ts:25` sets on a **hardcoded 3,500 ms timer** (`DELAY.done`).
+  It is an entrance animation, not a measure of work. Both the E2E suite's
+  readiness wait and the `platform-boot` analytics event carry that 3.5 s inside
+  them.
+- Plugin bundles load via `import(/* webpackIgnore: true */ entry)`, so they sit
+  outside every webpack chunk and are invisible to `pnpm analyze`.
+
+`src/lib/boot-metrics.ts` now emits Performance Timeline entries
+(`bootMarkStart`/`bootMarkEnd`/`bootMarkOnce`), readable by the perf harness, by
+devtools, and by any RUM agent in production.
+
+### Measured — n = 6, production build, fresh `next start` per run, authenticated, 0 page errors
+
+| Stage | Mean | SD | CV |
+|---|---:|---:|---:|
+| Globe downloaded | 200.8 ms | ±7.9 | 4.0% |
+| `app-ready` (animation) | 4,348.2 ms | ±213.3 | 4.9% |
+| First plugin bundle starts | 1,221.7 ms | ±48.6 | 4.0% |
+| Last plugin bundle loaded | 10,447.8 ms | ±475.7 | 4.6% |
+| Plugin bundle wall clock | 9,226.2 ms | ±489.0 | 5.3% |
+| Plugins loaded | 35.0 | ±0.0 | 0% |
+| **Plugins enabled** | **0.0** | **±0.0** | 0% |
+| **Plugins delivering data** | **0.0** | **±0.0** | 0% |
+
+**Plugin loading is fully serialized.** Sum-of-durations tracks the wall-clock
+envelope at ~98%, so 35 bundles fetch one after another. Concurrent loading
+would put the envelope near the slowest single bundle instead.
+
+**No layer is ever enabled, so the app never reaches a "full run"** — all
+features working and available. `plugin-register-all` measures 0 ms because
+`pluginRegistry.getAll()` is empty when AppShell's enable pass runs, immediately
+after `pluginManager.init()`. Plugins register later via the
+`dynamicPluginCreate` handler, which enables only when its `autoEnable` flag is
+set. Whether layers should auto-enable on a fresh session is a product decision,
+so this is measured and reported, not "fixed". Caveat: measured with a fresh
+authenticated test user carrying no stored layer preferences.
+
+### Measurement hygiene learned the hard way
+
+- **Restart the server between runs.** Without it, plugin timings drift
+  monotonically upward (+25% across six runs) and inflate SD — the variance was
+  accumulated server state, not noise. Fresh server dropped CV 8.5% → 4.6%.
+- **A settle loop must watch a counter that can actually move.** Watching only
+  `plugin-data` marks — pinned at 0 when nothing enables — made the loop exit on
+  its first tick and truncated the plugin set from 35 to ~21. Silently, and
+  plausibly enough to have been reported as fact.
+- **`document.documentElement` is null inside a Playwright init script.**
+  Observing it throws, which is why `appReadyMs` read `null` for several
+  sessions. It was never unmeasurable; it was never measured.
+- **The harness needs real auth.** Unauthenticated, every `/api/*` call 401s, the
+  marketplace sync fails and no plugin registers — `plugin-register-all` then
+  reads 0 ms, which looks like "instant" and means "empty". `PERF_NO_AUTH=1`
+  keeps the anonymous shell-only run available.
+
+### Priority order for the next session
+
+1. **Resolve auto-enable.** Nothing downstream is worth optimizing until layers
+   actually turn on — parallelizing 35 fetches that produce no visible layer just
+   makes a broken path faster.
+2. **Parallelize plugin loading** with bounded concurrency. ~9.2 s → ~0.5 s warm
+   on these numbers. The harness measures before/after directly.
+3. **Shorten `DELAY.done`.** 3.5 s of the 4.35 s time-to-interactive is a
+   `setTimeout` chain nothing waits on. One-line change, no functional risk.
+4. **Settle Draco** with `pnpm analyze` — still unverified whether the chunk's
+   `draco` ×87 is the decoder or loader plumbing.
+
+Reproduce any of this with `pnpm perf` (builds first) or `pnpm perf:only`.
+Output lands in `playwright/output/perf/globe-load.json`.
