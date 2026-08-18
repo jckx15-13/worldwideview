@@ -38,7 +38,7 @@ import { isDemo } from "@/core/edition";
 import { injectHostGlobals } from "@/core/plugins/hostGlobals";
 import { getDisabledPluginIds } from "@/core/plugins/pluginPreferences";
 import { initLogCatcher } from "@/lib/logCatcher";
-import { bootMarkStart, bootMarkEnd } from "@/lib/boot-metrics";
+import { bootMarkStart, bootMarkEnd, bootMarkOnce } from "@/lib/boot-metrics";
 import { MobileCameraStats } from "./MobileCameraStats";
 import { MobileHudBar } from "./MobileHudBar";
 import { AgentBusSubscriber } from "./AgentBusSubscriber";
@@ -138,6 +138,21 @@ export function AppShell() {
             console.log(`[AppShell] Platform Ready (${pluginCount} plugins). Waiting for globe tiles...`);
         };
 
+        // "Loaded" and "working" are different things. plugin-load:* only covers a
+        // bundle arriving and instantiating; a layer is not actually available until
+        // it is enabled AND its first non-empty payload has reached the bus. One
+        // central subscription captures both for every plugin, including the ones
+        // that arrive later via dynamicPluginCreate and so never pass through the
+        // registry loop above.
+        const unsubEnabled = dataBus.on("layerToggled", ({ pluginId, enabled }) => {
+            if (enabled) bootMarkOnce(`plugin-enabled:${pluginId}`);
+        });
+        // Non-empty only: an empty payload is a plugin reporting it has nothing yet,
+        // which is the opposite of a live feed.
+        const unsubData = dataBus.on("dataUpdated", ({ pluginId, entities }) => {
+            if (entities && entities.length > 0) bootMarkOnce(`plugin-data:${pluginId}`);
+        });
+
         // Guard so boot only starts once regardless of which trigger fires first.
         let bootStarted = false;
         const startBootOnce = (reason: string) => {
@@ -159,6 +174,8 @@ export function AppShell() {
 
         return () => {
             clearTimeout(safetyTimer);
+            unsubEnabled();
+            unsubData();
             unsubGlobe();
             boot.cleanup();
             pluginManager.destroy();

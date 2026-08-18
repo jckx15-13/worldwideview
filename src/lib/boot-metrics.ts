@@ -23,6 +23,26 @@ function unavailable(): boolean {
     return typeof performance === "undefined" || typeof performance.mark !== "function";
 }
 
+const seen = new Set<string>();
+
+/**
+ * Records a single timestamp the FIRST time a name is seen, ignoring repeats.
+ *
+ * Plugins poll on an interval, so `dataUpdated` fires repeatedly for the same
+ * plugin forever. What matters for startup is when each feed goes live *once*;
+ * the mark's `startTime` (ms from navigation start) is that answer. Later
+ * emissions are steady-state traffic, not boot.
+ */
+export function bootMarkOnce(name: string): void {
+    if (unavailable() || seen.has(name)) return;
+    seen.add(name);
+    try {
+        performance.mark(`${PREFIX}:${name}`);
+    } catch {
+        // Never let instrumentation break a data path.
+    }
+}
+
 /** Opens a measurement window. Safe to call for a name that is never closed. */
 export function bootMarkStart(name: string): void {
     if (unavailable()) return;

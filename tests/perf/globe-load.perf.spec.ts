@@ -130,8 +130,30 @@ test('globe load waterfall (production)', async ({ page, context }) => {
         appReadyMs = null;
     }
 
-    // Let any post-hydration chunk fetches settle before sampling.
-    await page.waitForLoadState('networkidle').catch(() => { });
+    // Wait for feeds to stop arriving, not for the network to go quiet. Plugins
+    // poll on intervals, so `networkidle` either never settles or settles during a
+    // gap between polls — either way it is uncorrelated with "all layers live".
+    // Instead: sample the plugin-data mark count until it stops growing.
+    let prevCount = -1;
+    let stableTicks = 0;
+    for (let i = 0; i < 60 && stableTicks < 3; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        // Count BOTH bundle loads and live feeds. Watching only feeds was a bug:
+        // when no plugin ever enables, that count is pinned at 0, `n === prevCount`
+        // is true on the first tick, and sampling fired ~1.5 s in — truncating the
+        // plugin set from 35 to ~21 and reporting it as fact.
+        const n = await page.evaluate(() => {
+            const marks = performance.getEntriesByType('mark')
+                .filter((e) => e.name.startsWith('wwv:plugin-data:')).length;
+            const loads = performance.getEntriesByType('measure')
+                .filter((e) => e.name.startsWith('wwv:plugin-load:')).length;
+            return marks + loads;
+        });
+        if (n === prevCount) stableTicks += 1;
+        else { stableTicks = 0; prevCount = n; }
+        // eslint-disable-next-line no-await-in-loop
+        await page.waitForTimeout(500);
+    }
 
     // Boot-phase work, emitted by src/lib/boot-metrics.ts. These measure real
     // work; `appReadyMs` does not — useBootSequence sets that on a fixed 3,500 ms
@@ -148,6 +170,42 @@ test('globe load waterfall (production)', async ({ page, context }) => {
         }
         return out;
     });
+
+    // Single-timestamp marks (bootMarkOnce), as opposed to the start/end measures
+    // above. `startTime` is ms from navigation start.
+    const bootMarks: Record<string, number> = await page.evaluate(() => {
+        const out: Record<string, number> = {};
+        for (const e of performance.getEntriesByType('mark')) {
+            if (e.name.startsWith('wwv:') && !e.name.endsWith(':start') && !e.name.endsWith(':end')) {
+                out[e.name.slice(4)] = Math.round(e.startTime);
+            }
+        }
+        return out;
+    });
+
+    const stageTimes = (prefix: string) =>
+        Object.entries(bootMarks)
+            .filter(([k]) => k.startsWith(prefix))
+            .map(([, v]) => v);
+
+    const enabledAt = stageTimes('plugin-enabled:');
+    const dataAt = stageTimes('plugin-data:');
+
+    /**
+     * "Full run" as defined by the operator: every feature actually working and
+     * available, not merely downloaded. The last plugin to deliver a non-empty
+     * payload is the closest honest proxy — after that point every enabled layer
+     * has real data on the bus and the globe renders it on the next frame.
+     */
+    const fullRun = {
+        pluginsLoaded: Object.keys(bootMeasures).filter((k) => k.startsWith('plugin-load:')).length,
+        pluginsEnabled: enabledAt.length,
+        pluginsWithData: dataAt.length,
+        lastEnabledMs: enabledAt.length ? Math.max(...enabledAt) : null,
+        // The headline figure.
+        lastDataMs: dataAt.length ? Math.max(...dataAt) : null,
+        firstDataMs: dataAt.length ? Math.min(...dataAt) : null,
+    };
 
     const pluginEntries = Object.entries(bootMeasures).filter(([k]) => k.startsWith('plugin-load:'));
     const pluginWallClock = pluginEntries.length
@@ -226,8 +284,10 @@ test('globe load waterfall (production)', async ({ page, context }) => {
         // and instantiation of a plugin bundle; `plugin-enable:*` is its first
         // activation. Empty means the boot path never reached them — check
         // pageErrors before reading that as "fast".
+        fullRun,
         plugins: pluginStats,
         boot: bootMeasures,
+        marks: bootMarks,
         authenticated,
         pageErrors: pageErrors.slice(0, 25),
     };
