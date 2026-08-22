@@ -162,8 +162,6 @@ worldwideview.code-workspace
 /playwright/output/
 /playwright/report/
 /playwright/.auth/
-/test-results/
-/playwright-report/
 /.playwright-mcp/
 
 # MCP client config -- contains a live API key, never commit
@@ -177,3 +175,8 @@ worldwideview.code-workspace
 
 # Graphify analysis output (generated)
 graphify-out/
+
+# measure-build.sh output artifacts
+scripts/build.pre
+scripts/build.log
+scripts/build.metrics

@@ -162,6 +162,29 @@
   --font-ui: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
+/* ─── Tactical Scanline Overlay ───────────────────────────── */
+/* Applied to .app-shell__globe when theme === "tactical".     */
+/* Creates a CRT-style horizontal scanline effect via a        */
+/* ::after pseudo-element that floats above the globe.         */
+.tactical-scanlines {
+  position: relative;
+}
+
+.tactical-scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0) 0px,
+    rgba(0, 0, 0, 0) 1px,
+    rgba(230, 126, 34, 0.035) 1px,
+    rgba(230, 126, 34, 0.035) 2px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
 :root {
 
   /* Typography */

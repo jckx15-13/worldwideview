@@ -82,4 +82,60 @@ describe('layersSlice', () => {
         store.getState().setLayerLoading('test-plugin', false);
         expect(store.getState().layers['test-plugin'].loading).toBe(false);
     });
+
+    // The identity of the `layers` object is load-bearing: eight components
+    // subscribe to the whole map via `useStore((s) => s.layers)`, one of them
+    // being GlobeView -- the Cesium host. A no-op write that still produces a
+    // fresh object re-renders all eight on every plugin data tick.
+    describe('layers identity stability', () => {
+        it('preserves the layers object identity when setLayerLoading is a no-op', () => {
+            store.getState().initLayer('test-plugin', true);
+            store.getState().setLayerLoading('test-plugin', false);
+            const before = store.getState().layers;
+
+            store.getState().setLayerLoading('test-plugin', false);
+
+            expect(store.getState().layers).toBe(before);
+        });
+
+        it('preserves the layers object identity when setEntityCount is a no-op', () => {
+            store.getState().initLayer('test-plugin', true);
+            store.getState().setEntityCount('test-plugin', 42);
+            const before = store.getState().layers;
+
+            store.getState().setEntityCount('test-plugin', 42);
+
+            expect(store.getState().layers).toBe(before);
+        });
+
+        it('still changes identity when the loading value genuinely changes', () => {
+            store.getState().initLayer('test-plugin', true);
+            store.getState().setLayerLoading('test-plugin', false);
+            const before = store.getState().layers;
+
+            store.getState().setLayerLoading('test-plugin', true);
+
+            expect(store.getState().layers).not.toBe(before);
+            expect(store.getState().layers['test-plugin'].loading).toBe(true);
+        });
+
+        it('still changes identity when the entity count genuinely changes', () => {
+            store.getState().initLayer('test-plugin', true);
+            store.getState().setEntityCount('test-plugin', 1);
+            const before = store.getState().layers;
+
+            store.getState().setEntityCount('test-plugin', 2);
+
+            expect(store.getState().layers).not.toBe(before);
+            expect(store.getState().layers['test-plugin'].entityCount).toBe(2);
+        });
+
+        // A write targeting a layer that was never initialized must still create
+        // it. Guarding on `existing` must not silently drop the write.
+        it('creates the layer when writing to an uninitialized id', () => {
+            store.getState().setEntityCount('never-initialized', 7);
+
+            expect(store.getState().layers['never-initialized'].entityCount).toBe(7);
+        });
+    });
 });

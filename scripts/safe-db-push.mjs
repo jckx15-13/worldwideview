@@ -24,16 +24,29 @@ const shadowDbName = `${mainDbName}_shadow`;
 
 // Ensure shadow database exists (Prisma 7 requires separate shadow DB for db push).
 // Find the PostgreSQL container dynamically by image ancestor instead of hardcoding.
+// containerName is declared outside try so the catch block can reference it.
+let containerName = '';
 try {
-  const containerName = execSync(
+  containerName = execSync(
     'docker ps --filter "ancestor=postgres" --format "{{.Names}}" | head -1',
     { encoding: 'utf8' },
   ).trim();
   if (containerName) {
     execSync(`docker exec ${containerName} psql -U postgres -c "CREATE DATABASE ${shadowDbName};"`, { stdio: 'pipe' });
+    console.log(`✅ Shadow database "${shadowDbName}" ensured.`);
   }
-} catch {
-  // Database already exists — this is expected on subsequent runs.
+} catch (e) {
+  const stderr = (e?.stderr?.toString?.() ?? String(e ?? '')).trim();
+  if (stderr.includes('already exists')) {
+    // Expected on subsequent runs — shadow DB already present.
+    console.log(`ℹ️  Shadow database "${shadowDbName}" already exists — skipping creation.`);
+  } else if (!containerName) {
+    console.warn('⚠️  No running postgres container found (docker ps returned nothing). Shadow DB creation skipped. Ensure Docker is running if this is unexpected.');
+  } else {
+    console.error(`❌ Failed to create shadow database "${shadowDbName}":`);
+    console.error(stderr || e?.message || String(e));
+    process.exit(1);
+  }
 }
 
 console.log("🔒 Local database detected. Safely running prisma db push...");

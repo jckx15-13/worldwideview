@@ -33,6 +33,8 @@ interface FetchOptions extends RequestInit {
     streaming?: boolean;
 }
 
+/** Maximum number of hosts to track in permissive-mode warn log to prevent unbounded growth. */
+const MAX_WARNED_HOSTS = 1000;
 const warnedHosts = new Set<string>();
 
 function checkHostAllowlist(hostname: string): void {
@@ -41,6 +43,11 @@ function checkHostAllowlist(hostname: string): void {
 
     if (allowlist === "*") {
         if (!warnedHosts.has(hostname)) {
+            // Simple LRU-like eviction: discard oldest entry when at capacity
+            if (warnedHosts.size >= MAX_WARNED_HOSTS) {
+                const oldest = warnedHosts.values().next().value;
+                if (oldest !== undefined) warnedHosts.delete(oldest);
+            }
             warnedHosts.add(hostname);
             console.warn(`[SSRF] PROXY_HOST_ALLOWLIST="*" — permissive mode, host: ${hostname}. Populate the list from WARN logs then tighten.`);
         }

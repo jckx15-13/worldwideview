@@ -56,18 +56,37 @@ export const createLayersSlice: StateCreator<AppStore, [], [], LayersSlice> = (s
                 [pluginId]: { ...state.layers[pluginId], enabled },
             },
         })),
-    setEntityCount: (pluginId, count) => set((state) => ({
+    // `layers` object identity is load-bearing. Eight components subscribe to the
+    // whole map via `useStore((s) => s.layers)` -- including GlobeView, the Cesium
+    // host -- and none of src/components uses React.memo. A no-op write that still
+    // spreads a fresh object therefore re-renders all eight on every plugin data
+    // tick, cascading into per-entity work across every enabled layer.
+    //
+    // These two setters are the per-tick hot path: REST polls emit a loading flag
+    // and an entity count every cycle, per plugin, whether or not the value moved.
+    // Returning `{}` is a no-op merge in zustand -- subscribers are not notified.
+    // Guard only on a genuinely unchanged value; an uninitialized layer has no
+    // `existing`, so the write still falls through and creates it.
+    setEntityCount: (pluginId, count) => set((state) => {
+        const existing = state.layers[pluginId];
+        if (existing && existing.entityCount === count) return {};
+        return {
             layers: {
                 ...state.layers,
-                [pluginId]: { ...state.layers[pluginId], entityCount: count },
+                [pluginId]: { ...existing, entityCount: count },
             },
-        })),
-    setLayerLoading: (pluginId, loading) => set((state) => ({
+        };
+    }),
+    setLayerLoading: (pluginId, loading) => set((state) => {
+        const existing = state.layers[pluginId];
+        if (existing && existing.loading === loading) return {};
+        return {
             layers: {
                 ...state.layers,
-                [pluginId]: { ...state.layers[pluginId], loading },
+                [pluginId]: { ...existing, loading },
             },
-        })),
+        };
+    }),
     initLayer: (pluginId, defaultEnabled = false) => set((state) => ({
             layers: {
                 ...state.layers,

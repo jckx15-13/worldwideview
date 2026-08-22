@@ -35,3 +35,13 @@ To help us quickly validate and fix the issue, please include the following in y
 * **Disclosure:** Once the vulnerability is patched and a new version is released, we will publish a security advisory. We are happy to credit you for the discovery if you would like!
 
 *Note: As an open-source project, we currently do not offer financial bug bounties, but we deeply appreciate your contributions to keeping our users safe.*
+
+---
+
+## Dependency Override Rationale
+
+The following `pnpm.overrides` entries in `package.json` were added for security reasons. This section documents each one so maintainers know when they are safe to remove.
+
+| Package | Override | Reason | Safe to Remove When |
+|---|---|---|---|
+| `esbuild` | `>=0.28.1` | Versions of esbuild before 0.28.1 expose the development server on `0.0.0.0` by default, making it reachable from the local network. This was [disclosed by the esbuild maintainer](https://github.com/evanw/esbuild/security/advisories/GHSA-6xrh-qhqw-c6h5) in early 2025. Next.js 16 depends on esbuild transitively via `@next/swc`. | When all transitive consumers of esbuild in the dependency tree independently require `>=0.28.1`. |

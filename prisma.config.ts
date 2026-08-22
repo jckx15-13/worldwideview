@@ -30,7 +30,18 @@ if (!dbUrl) {
 
 function deriveShadowUrl(url: string | undefined): string | undefined {
     if (!url) return url;
-    return url.replace(/\/([^/?]+)(\?|$)/, "/$1_shadow$2");
+    // Match the LAST path segment before an optional query string.
+    // This is more robust than the previous pattern which could match an
+    // intermediate segment on URLs with unusual structure.
+    const match = url.match(/^(.+\/)([^/?]+)(\?.*)?$/);
+    if (!match) {
+        console.warn(
+            "[prisma.config] Could not derive shadow database URL from DATABASE_URL. " +
+            "Set SHADOW_DATABASE_URL explicitly if prisma db push fails."
+        );
+        return url;
+    }
+    return `${match[1]}${match[2]}_shadow${match[3] || ""}`;
 }
 
 export default {
